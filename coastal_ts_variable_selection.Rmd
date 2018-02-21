@@ -1,0 +1,113 @@
+---
+title: "coastal_ts_variable_selection"
+author: "Bryan Milstead"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+library(tidyverse)
+library(randomForest)
+# library(caret)
+```
+
+## Introduction
+We are developing a trophic state index for transitional (estuarine and coastal) waters.  Part of this process involves selection of predictor variables.  We use random forest to determine the most imporant variables.
+
+
+## Data
+* Data [CoastalWQ_20170928.csv] and code [betty_code_20171004.r], received from Betty on 20180207
+* using Betty code, download and organize the data
+    - rename some fields
+    - filter for year == 2010, region != "Insular", region != "Great Lakes", col_loc == "SURFACE", and visnum == 1
+    - restrict to complete cases
+
+```{r read, include=FALSE, echo=FALSE, cache=FALSE} 
+# get the data
+coastalData<-read.csv(file="CoastalWQ_20170928.csv",header=TRUE)
+
+# rename fields
+coastalData<-rename(coastalData, chla=CHLA..ug.L.)
+coastalData<-rename(coastalData, TN=TN..mgN.L.)
+coastalData<-rename(coastalData, DIN=DIN..mgN.L.)
+coastalData<-rename(coastalData, TP=TP..mgP.L.)
+coastalData<-rename(coastalData, DIP=DIP..mgP.L.)
+coastalData<-rename(coastalData, DIN_DIP=DIN.DIP..Molar.)
+coastalData<-rename(coastalData, TN_TP=TN.TP..Molar.)
+coastalData<-rename(coastalData, secchi=SECCHI_MEAN..m.)
+coastalData<-rename(coastalData, TSS=TSS..mg.L.)
+
+# change all names to lowercase
+
+names(coastalData)<-tolower(names(coastalData))
+
+# choose predictor variables
+
+predVar<-c(7,8,9,10,11,14,15,16,17,18,20)
+
+# 2010 only model
+coast2010<-filter(coastalData, sampyear==2010, region != "Insular", 
+                  region != "Great Lakes", col_loc == "SURFACE", visnum == 1)
+
+# keep only complete cases for chla
+x<-complete.cases(coast2010[,c(13, predVar)])
+coast2010.cc<-coast2010[x,]
+```
+
+## Analysis
+
+* run random forest
+    - save as coast2010rf.rda
+* create the variable importance plot & table
+
+```{r rf, include=FALSE, echo=FALSE, eval=FALSE} 
+set.seed(1956)
+coast2010.rf<-randomForest(coast2010.cc[,predVar],log1p(coast2010.cc[,13]),ntree=10000,
+                           importance=TRUE,proximity=TRUE,na.action=na.omit)
+
+save(coast2010.rf, file='coast2010.rf.rda')
+
+# variable importance plot
+
+jpeg('coast2010_variable_importance.jpeg')
+varImpPlot(coast2010.rf,type = 1)
+dev.off()
+```
+
+```{r rf1, include=FALSE, echo=FALSE, eval=TRUE} 
+#since eval = FALSE (above) need to reload the rf results
+load(file='coast2010.rf.rda')
+```
+
+## Results
+
+* response variable is "chla"
+* predictor variables and their overall imporatance values are shown below in table format ("coast2010_rf_imp.csv")
+
+```{r kable, include=TRUE, echo=FALSE, cache=FALSE} 
+# importance table
+imp<-as.data.frame(coast2010.rf$importance)
+imp$variable <- row.names(imp)
+names(imp)[1]<-"per_inc_mse"
+imp<-select(imp, variable, per_inc_mse, IncNodePurity) %>% arrange(desc(per_inc_mse))
+
+write.csv(imp, 'coast2010_rf_imp.csv')
+
+knitr::kable(imp)
+```
+
+* importance values shown graphically ("coast2010_variable_importance.jpeg")
+
+```{r fig1, include=TRUE, echo=FALSE, cache=FALSE} 
+varImpPlot(coast2010.rf,type = 1)
+```
+
+
+Variable Selection
+
+The goal of variable selection is to identify an optimal reduced subset of predictor variables. Here we used the results from random forest modeling as a means of variable selection. Random forest modeling is a machine learning algorithm that builds numerous statistical decision trees in order to attain a consensus predictor model (Breiman, 2001). Each tree is based on recursively bootstrapped data, and the out-of-bag (OOB) data, cases left out of the sample, provides an unbiased estimation of model error and measure of predictor variable importance. Random forest modeling was conducted in randomForest package in R (Liaw and Wiener, 2002; R Core Team, 2016). We developed random forest models to select predictor variables to model trophic state, nitrogen, and phosphorus. The random forest model for trophic state included in situ water quality data and universally available GIS data, e.g. landscape data (see Hollister et al. (2016) for detailed methods). The models for nitrogen and phosphorus included only universally available GIS data. We used percent increase in mean square error to examine variable importance.
+
+
